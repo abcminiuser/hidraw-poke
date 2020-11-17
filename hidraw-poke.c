@@ -6,8 +6,25 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
 #include <linux/hidraw.h>
 #include <getopt.h>
+
+#ifndef HIDIOCSFEATURE
+    #define HIDIOCSFEATURE(len)     _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x06, len)
+    #define HIDIOCGFEATURE(len)     _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x07, len)
+#endif
+#ifndef HIDIOCSINPUT
+    #define HIDIOCSINPUT(len)       _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x09, len)
+    #define HIDIOCGINPUT(len)       _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x0A, len)
+#endif
+#ifndef HIDIOCSOUTPUT
+    #define HIDIOCSOUTPUT(len)      _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x0B, len)
+    #define HIDIOCGOUTPUT(len)      _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x0C, len)
+#endif
+
+#define HID_REPORT_MAX_SIZE         (16 * 1024)
 
 // hidraw-poke --write feature --id 2 --device /dev/hidraw0 012345
 
@@ -60,7 +77,7 @@ static const struct option long_options[] =
 static const char* short_options =  "d:r:w:i:l:";
 
 
-static int strtoop(const char* text)
+static int report_type_from_string(const char* text)
 {
     if (strcasecmp(optarg, "input") == 0)
         return REPORT_INPUT;
@@ -68,6 +85,21 @@ static int strtoop(const char* text)
         return REPORT_OUTPUT;
     else
         return REPORT_FEATURE;
+}
+
+static const char* report_type_to_string(int type)
+{
+    switch (type)
+    {
+        case REPORT_FEATURE:
+            return "feature";
+        case REPORT_INPUT:
+            return "input";
+        case REPORT_OUTPUT:
+            return "output";
+        default:
+            return "?";
+    }
 }
 
 static int parse_args(int argc, char** argv, struct app_context* context)
@@ -89,14 +121,14 @@ static int parse_args(int argc, char** argv, struct app_context* context)
             case 'r':
             {
                 context->operation = OP_READ;
-                context->type = strtoop(optarg);
+                context->type = report_type_from_string(optarg);
                 break;
             }
 
             case 'w':
             {
                 context->operation = OP_WRITE;
-                context->type = strtoop(optarg);
+                context->type = report_type_from_string(optarg);
                 break;
             }
 
@@ -140,33 +172,141 @@ int main(int argc, char** argv)
         fprintf(stderr, usage_text, argv[0]);
         exit(0);
     }
-    else if (! context.path)
+
+    if (! context.path)
     {
         fprintf(stderr, "Error: No device specified.\n");
 
         fprintf(stderr, usage_text, argv[0]);
         exit(1);
     }
-    else if (context.operation == OP_NONE)
-    {
-        fprintf(stderr, "Error: No read or write operation specified.\n");
 
-        fprintf(stderr, usage_text, argv[0]);
-        exit(1);
-    }
-    else if (context.operation == OP_READ && context.length <= 0)
+    if (context.operation == OP_READ && context.length <= 0)
     {
         fprintf(stderr, "Error: Read operation requires an explicit length.\n");
 
         fprintf(stderr, usage_text, argv[0]);
         exit(1);
     }
-
-    const int hid_handle = open(context.path, O_RDWR);
-    if (hid_handle < 0)
+    else if (context.operation == OP_WRITE)
     {
-        perror("Failed to open device.");
+        context.length = argc - data_arg_index;
+    }
+
+    if (context.length <= 0)
+    {
+        fprintf(stderr, "Error: Invalid length.\n");
+
+        fprintf(stderr, usage_text, argv[0]);
         exit(1);
+    }
+    else if (context.length > HID_REPORT_MAX_SIZE)
+    {
+        fprintf(stderr, "Error: Length too large.\n");
+
+        fprintf(stderr, usage_text, argv[0]);
+        exit(1);
+    }
+
+    const int fd = open(context.path, O_RDWR);
+    if (fd < 0)
+    {
+        perror("Error: Failed to open device");
+        exit(1);
+    }
+
+    switch (context.operation)
+    {
+        case OP_READ:
+        {
+            fprintf(stderr, "Reading %d byte %s report from report ID %d.\n",
+                context.length,
+                report_type_to_string(context.type),
+                context.id);
+
+            uint8_t* buffer = malloc(context.length + 1);
+            int      result = -1;
+
+            buffer[0] = context.id;
+
+            switch (context.type)
+            {
+                case REPORT_FEATURE:
+                    result = ioctl(fd, HIDIOCGFEATURE(context.length), buffer);
+                    if (result < 0)
+                        perror("Error: HIDIOCGFEATURE failed");
+
+                    break;
+
+                case REPORT_INPUT:
+                    result = ioctl(fd, HIDIOCGINPUT(context.length), buffer);
+                    if (result < 0)
+                        perror("Error: HIDIOCGINPUT failed");
+
+                    break;
+
+                case REPORT_OUTPUT:
+                    result = ioctl(fd, HIDIOCGOUTPUT(context.length), buffer);
+                    if (result < 0)
+                        perror("Error: HIDIOCGOUTPUT failed");
+
+                    break;
+            }
+
+            if (result < 0)
+                exit(1);
+
+            for (int i = 0; i < result; i++)
+                printf("%02X ", (uint8_t)buffer[i]);
+            printf("\n");
+
+            break;
+        }
+
+        case OP_WRITE:
+        {
+            fprintf(stderr, "Writing %d byte %s report from report ID %d.\n",
+                context.length,
+                report_type_to_string(context.type),
+                context.id);
+
+            uint8_t* buffer = malloc(context.length + 1);
+            int      result = -1;
+
+            buffer[0] = context.id;
+
+            for (int i = 0; i < context.length; i++)
+                buffer[1 + i] = strtol(argv[data_arg_index + i], NULL, 16);
+
+            switch (context.type)
+            {
+                case REPORT_FEATURE:
+                    result = ioctl(fd, HIDIOCSFEATURE(context.length), buffer);
+                    if (result < 0)
+                        perror("Error: HIDIOCSFEATURE failed");
+
+                    break;
+
+                case REPORT_INPUT:
+                    result = ioctl(fd, HIDIOCSINPUT(context.length), buffer);
+                    if (result < 0)
+                        perror("Error: HIDIOCSINPUT failed");
+
+                    break;
+
+                case REPORT_OUTPUT:
+                    result = ioctl(fd, HIDIOCSOUTPUT(context.length), buffer);
+                    if (result < 0)
+                        perror("Error: HIDIOCSOUTPUT failed");
+
+                    break;
+            }
+
+            if (result < 0)
+                exit(1);
+
+            break;
+        }
     }
 
     return 0;
