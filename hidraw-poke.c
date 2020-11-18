@@ -224,7 +224,7 @@ int main(int argc, char** argv)
                 report_type_to_string(context.type),
                 context.id);
 
-            uint8_t* buffer = malloc(context.length + 1);
+            uint8_t* buffer = calloc(context.length + 1, 1);
             int      result = -1;
 
             buffer[0] = context.id;
@@ -270,9 +270,10 @@ int main(int argc, char** argv)
                 report_type_to_string(context.type),
                 context.id);
 
-            uint8_t* buffer = malloc(context.length + 1);
+            uint8_t* buffer = calloc(context.length + 1, 1);
             int      result = -1;
 
+            memset(buffer, 0, context.length + 1);
             buffer[0] = context.id;
 
             for (int i = 0; i < context.length; i++)
