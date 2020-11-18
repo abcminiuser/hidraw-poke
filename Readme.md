@@ -17,6 +17,17 @@ only, rather than regular reads and writes over the normal I/O. Not all
 devices will support HID read and write report requests over the control
 channel, instead of the regular data channel.
 
+Usage:
+------
+
+Example usage:
+```
+hidraw-poke --write feature --id 2 --device /dev/hidraw0 01 02 ab cd
+hidraw-poke --read input --id 5 --device /dev/hidraw0 --length 6
+```
+
+See `hidraw-poke --help` for more usage information.
+
 Important Note - Kernel Patch Required:
 ---------------------------------------
 Also note that the Linux kernel currently only supports feature request

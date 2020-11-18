@@ -26,8 +26,6 @@
 
 #define HID_REPORT_MAX_SIZE         (16 * 1024)
 
-// hidraw-poke --write feature --id 2 --device /dev/hidraw0 012345
-
 enum operation
 {
     OP_NONE,
