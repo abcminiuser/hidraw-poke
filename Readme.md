@@ -28,14 +28,10 @@ hidraw-poke --read input --id 5 --device /dev/hidraw0 --length 6
 
 See `hidraw-poke --help` for more usage information.
 
-Important Note - Kernel Patch Required:
----------------------------------------
-Also note that the Linux kernel currently only supports feature request
-read and writes via the control channel only. This project uses
-additional ioctls proposed in a as-yet unaccepted patch to add support
-for reading and writing input and output reports via the same method.
+Important Note - Kernel 5.11 or Newer Required:
+-----------------------------------------------
+Kernel versions older than 5.11 only support a limited set of ioctls,
+for reading and writing Feature reports via the control channel only.
 
-If the kernel patch is not applied, only feature requests can be written
-or read.
-
-For the associated proposed kernel patch, [see here](https://github.com/abcminiuser/linux/tree/topic-linux-hidraw).
+To read and write Input and Output reports via the control channel,
+Linux 5.11 on newer must be used.
